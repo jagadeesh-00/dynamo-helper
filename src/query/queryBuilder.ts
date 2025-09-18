@@ -108,9 +108,15 @@ function buildConditionExpressions<T extends object = AnyObject>(
   // extract the conditions
   Object.keys(where).forEach(key => {
     let condition = where[key];
-    const keyName = `#${key.toUpperCase()}`;
 
-    expressionAttributeNames[keyName] = key;
+    const keyParts = key.split('.').map(part => part.toUpperCase());
+
+    const keyName = keyParts.map(part => `#${part}`).join('.');
+
+    for(let keyPart of keyParts){
+      const alias = `#${keyPart}`;
+      expressionAttributeNames[alias] = keyPart;
+    }
 
     const valueExpression = `:${key}`;
 

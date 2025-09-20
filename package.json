@@ -13,8 +13,8 @@
     "LICENSE",
     "README.md"
   ],
-  "main": "lib/index",
-  "types": "lib",
+  "main": "src/index",
+  "types": "src",
   "repository": {
     "type": "git",
     "url": "http://github.com/oolio-group/dynamo-helper.git"
@@ -55,10 +55,5 @@
     "prettier": "3.2.1",
     "pretty-quick": "3.1.0",
     "typescript": "4.0.5"
-  },
-  "husky": {
-    "hooks": {
-      "pre-commit": "yarn lint && pretty-quick --staged"
-    }
   }
 }

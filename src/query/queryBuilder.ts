@@ -100,144 +100,113 @@ function buildConditionExpressions<T extends object = AnyObject>(
   partitionKeyName: string,
   sortKeyName: string,
 ): Partial<QueryInput> {
-  const expressionAttributeNames: Record<string, string> = {};
-  const expressionAttributeValues: Record<string, any> = {};
-  const keyConditionExpression: string[] = [];
-  const filterExpression: string[] = [];
-  let valueCounter = 0;
+  const expressionAttributeNames = {};
+  const expressionAttributeValues = {};
+  const keyConditionExpression = [];
+  const filterExpression = [];
 
-  const getUniqueValueKey = (): string => {
-    valueCounter++;
-    return `val${valueCounter}`;
-  };
-
-  const processNestedKey = (key: string): { keyName: string; attributeNames: Record<string, string> } => {
+  // extract the conditions
+  Object.keys(where).forEach(key => {
+    let condition = where[key];
     const keyParts = key.split('.');
-    const attributeNames: Record<string, string> = {};
+    const keyName = keyParts.map(part => `#${part.toUpperCase()}`).join('.');
 
-    const keyName = keyParts
-      .map(part => {
-        const upperPart = part.toUpperCase();
-        const alias = `#${upperPart}`;
-        attributeNames[alias] = part;
-        return alias;
-      })
-      .join('.');
-
-    return { keyName, attributeNames };
-  };
-
-  const buildCondition = (
-    key: string,
-    condition: any,
-  ): string | null => {
-    const { keyName, attributeNames } = processNestedKey(key);
-    Object.assign(expressionAttributeNames, attributeNames);
-
-    if (condition === null || condition === undefined) {
-      const valueKey = `:${getUniqueValueKey()}`;
-      expressionAttributeValues[valueKey] = condition;
-      return `${keyName} = ${valueKey}`;
-    }
-
-    if (typeof condition === 'object' && condition.constructor.name === 'Object') {
-      const operators = Object.keys(condition);
-      const conditionParts: string[] = [];
-
-      for (const operator of operators) {
-        const value = condition[operator];
-        const dynamoOperator = keyOperatorLookup(operator as FilterOperators);
-
-        if (dynamoOperator === 'EXISTS') {
-          conditionParts.push(
-            value ? `attribute_exists(${keyName})` : `attribute_not_exists(${keyName})`
-          );
-        } else if (dynamoOperator === 'BETWEEN') {
-          const startKey = `:${getUniqueValueKey()}`;
-          const endKey = `:${getUniqueValueKey()}`;
-          expressionAttributeValues[startKey] = value[0];
-          expressionAttributeValues[endKey] = value[1];
-          conditionParts.push(`${keyName} ${dynamoOperator} ${startKey} AND ${endKey}`);
-        } else if (dynamoOperator === 'IN') {
-          const valueKeys = value.map(() => `:${getUniqueValueKey()}`);
-          valueKeys.forEach((valueKey: string, index: number) => {
-            expressionAttributeValues[valueKey] = value[index];
-          });
-          conditionParts.push(`${keyName} ${dynamoOperator} (${valueKeys.join(', ')})`);
-        } else if (dynamoOperator === 'CONTAINS' || dynamoOperator === 'BEGINS_WITH') {
-          const valueKey = `:${getUniqueValueKey()}`;
-          expressionAttributeValues[valueKey] = value;
-          conditionParts.push(`${dynamoOperator.toLowerCase()}(${keyName}, ${valueKey})`);
-        } else {
-          const valueKey = `:${getUniqueValueKey()}`;
-          expressionAttributeValues[valueKey] = value;
-          conditionParts.push(`${keyName} ${dynamoOperator} ${valueKey}`);
-        }
-      }
-
-      return conditionParts.length > 1 ? `(${conditionParts.join(' AND ')})` : conditionParts[0];
-    } else if (Array.isArray(condition)) {
-      if (condition.length === 2 && typeof condition[0] !== 'object') {
-        const startKey = `:${getUniqueValueKey()}`;
-        const endKey = `:${getUniqueValueKey()}`;
-        expressionAttributeValues[startKey] = condition[0];
-        expressionAttributeValues[endKey] = condition[1];
-        return `${keyName} BETWEEN ${startKey} AND ${endKey}`;
-      } else {
-        const valueKeys = condition.map(() => `:${getUniqueValueKey()}`);
-        valueKeys.forEach((valueKey: string, index: number) => {
-          expressionAttributeValues[valueKey] = condition[index];
-        });
-        return `${keyName} IN (${valueKeys.join(', ')})`;
-      }
-    } else {
-      const valueKey = `:${getUniqueValueKey()}`;
-      expressionAttributeValues[valueKey] = condition;
-      return `${keyName} = ${valueKey}`;
-    }
-  };
-
-  const buildWhereClause = (whereClause: Where<T>): string => {
-    if ('and' in whereClause) {
-      const andConditions = whereClause.and.map(subClause => buildWhereClause(subClause));
-      return `(${andConditions.join(' AND ')})`;
-    }
-
-    if ('or' in whereClause) {
-      const orConditions = whereClause.or.map(subClause => buildWhereClause(subClause));
-      return `(${orConditions.join(' OR ')})`;
-    }
-
-    const conditions: string[] = [];
-
-    Object.keys(whereClause).forEach(key => {
-      const condition = whereClause[key];
-
-      if (key === partitionKeyName) {
-        const conditionStr = buildCondition(key, condition);
-        if (conditionStr) {
-          keyConditionExpression.push(conditionStr);
-        }
-      } else if (key === sortKeyName) {
-        const conditionStr = buildCondition(key, condition);
-        if (conditionStr) {
-          keyConditionExpression.push(conditionStr);
-        }
-      } else {
-        const conditionStr = buildCondition(key, condition);
-        if (conditionStr) {
-          conditions.push(conditionStr);
-        }
-      }
+    keyParts.forEach((part, index) => {
+      const alias = `#${part.toUpperCase()}`;
+      expressionAttributeNames[alias] = part;
     });
 
-    return conditions.length > 1 ? `(${conditions.join(' AND ')})` : conditions[0] || '';
-  };
+    const valueExpression = `:${key}`;
 
-  const filterCondition = buildWhereClause(where);
-  if (filterCondition) {
-    filterExpression.push(filterCondition);
-  }
+    if (key === partitionKeyName) {
+      keyConditionExpression.push(`${keyName} = ${valueExpression}`);
+      expressionAttributeValues[valueExpression] = condition;
+    } else if (key === sortKeyName) {
+      if (condition && condition.constructor.name === 'Object') {
+        const insideKey = Object.keys(condition)[0];
+        condition = condition[insideKey];
+        const operator = keyOperatorLookup(insideKey as FilterOperators);
+        if (operator === 'BETWEEN') {
+          // eslint-disable-next-line prefer-destructuring
+          expressionAttributeValues[`${valueExpression}_start`] = condition[0];
+          // eslint-disable-next-line prefer-destructuring
+          expressionAttributeValues[`${valueExpression}_end`] = condition[1];
+          keyConditionExpression.push(
+            `${keyName} ${operator} ${valueExpression}_start` +
+              ` AND ${valueExpression}_end`,
+          );
+        } else if (operator === 'BEGINS_WITH') {
+          expressionAttributeValues[valueExpression] = condition;
+          keyConditionExpression.push(
+            `${operator.toLowerCase()}(${keyName}, ${valueExpression})`,
+          );
+        } else {
+          expressionAttributeValues[valueExpression] = condition;
+          keyConditionExpression.push(
+            `${keyName} ${operator} ${valueExpression}`,
+          );
+        }
+      } else if (condition && condition.constructor.name === 'Array') {
+        // eslint-disable-next-line prefer-destructuring
+        expressionAttributeValues[`${valueExpression}_start`] = condition[0];
+        // eslint-disable-next-line prefer-destructuring
+        expressionAttributeValues[`${valueExpression}_end`] = condition[1];
+        keyConditionExpression.push(
+          `${keyName} BETWEEN ${valueExpression}_start` +
+            ` AND ${valueExpression}_end`,
+        );
+      } else {
+        expressionAttributeValues[valueExpression] = condition;
+        keyConditionExpression.push(`${keyName} = ${valueExpression}`);
+      }
+    } else if (condition && condition.constructor.name === 'Object') {
+      const insideKey = Object.keys(condition)[0];
+      condition = condition[insideKey];
+      const operator = keyOperatorLookup(insideKey as FilterOperators);
+      if (operator === 'EXISTS') {
+        filterExpression.push(
+          condition
+            ? `attribute_exists(${keyName})`
+            : `attribute_not_exists(${keyName})`,
+        );
+      } else if (operator === 'BETWEEN') {
+        // eslint-disable-next-line prefer-destructuring
+        expressionAttributeValues[`${valueExpression}_start`] = condition[0];
+        // eslint-disable-next-line prefer-destructuring
+        expressionAttributeValues[`${valueExpression}_end`] = condition[1];
+        filterExpression.push(
+          `${keyName} ${operator} ${valueExpression}_start` +
+            ` AND ${valueExpression}_end`,
+        );
+      } else if (operator === 'IN') {
+        let expressionTemp = '';
+        condition.forEach((eachVal, index) => {
+          expressionAttributeValues[`${valueExpression}${index + 1}`] = eachVal;
+          if (!expressionTemp) {
+            expressionTemp = expressionTemp + `${valueExpression}${index + 1}`;
+          } else {
+            expressionTemp =
+              expressionTemp + `, ${valueExpression}${index + 1}`;
+          }
+        });
+        filterExpression.push(`${keyName} in (${expressionTemp})`);
+      } else if (operator === 'CONTAINS') {
+        expressionAttributeValues[valueExpression] = condition;
+        filterExpression.push(
+          `${operator.toLowerCase()}(${keyName}, ${valueExpression})`,
+        );
+      } else {
+        expressionAttributeValues[valueExpression] = condition;
+        filterExpression.push(`${keyName} ${operator} ${valueExpression}`);
+      }
+    } else if (condition && condition.constructor.name === 'Array') {
+      expressionAttributeValues[valueExpression] = `(${condition.join(',')})`;
+      filterExpression.push(`${keyName} IN ${valueExpression}`);
+    } else {
+      expressionAttributeValues[valueExpression] = condition;
+      filterExpression.push(`${keyName} = ${valueExpression}`);
+    }
+  });
 
   const tableParams = {
     KeyConditionExpression: keyConditionExpression.join(' AND '),
@@ -248,10 +217,6 @@ function buildConditionExpressions<T extends object = AnyObject>(
 
   if (!tableParams.FilterExpression) {
     delete tableParams.FilterExpression;
-  }
-
-  if (!tableParams.KeyConditionExpression) {
-    delete tableParams.KeyConditionExpression;
   }
 
   return tableParams;
@@ -281,13 +246,11 @@ export function buildQueryTableParams<T extends object = AnyObject>(
 
   // Construct query for Amazon DynamoDB
   // Extract keys and filter conditions
-  const tableParams = filter.where
-    ? (buildConditionExpressions(
-        filter.where,
-        partitionKeyName,
-        sortKeyName,
-      ) as QueryInput)
-    : ({} as QueryInput);
+  const tableParams = buildConditionExpressions(
+    filter.where,
+    partitionKeyName,
+    sortKeyName,
+  ) as QueryInput;
 
   // Add projection attribute expressions
   // if at least one field is provided filter is applied

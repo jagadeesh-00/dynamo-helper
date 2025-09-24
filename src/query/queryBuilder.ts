@@ -116,7 +116,9 @@ function buildConditionExpressions<T extends object = AnyObject>(
       expressionAttributeNames[alias] = part;
     });
 
-    const valueExpression = `:${key}`;
+    const valueExpressionKey = key.replace(/\./g, '_');
+
+    const valueExpression = `:${valueExpressionKey}`;
 
     if (key === partitionKeyName) {
       keyConditionExpression.push(`${keyName} = ${valueExpression}`);

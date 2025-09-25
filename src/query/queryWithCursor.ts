@@ -18,9 +18,8 @@ export async function queryWithCursor<T extends AnyObject>(
   filter: Filter<T>,
   indexName?: string,
 ): Promise<{ items: Array<T>; cursor?: string; scannedCount: number }> {
-  const { partitionKeyName, sortKeyName } = table.indexes[
-    indexName || 'default'
-  ];
+  const { partitionKeyName, sortKeyName } =
+    table.indexes[indexName || 'default'];
 
   if (!sortKeyName) {
     throw new Error('Expected sortKey to query');
@@ -60,6 +59,8 @@ export async function queryWithCursor<T extends AnyObject>(
       params.Limit = originalLimit - items.length;
     }
 
+    console.log({ params });
+    console.log(params.KeyConditionExpression);
     output = await dbClient.query(params).promise();
     totalScannedCount += output.ScannedCount;
 
